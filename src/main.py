@@ -50,13 +50,19 @@ def generate_triplets():
     print(x_test.shape[0], y_test.shape, 'test samples')
 
     i = 0
+
+    dlist = []
+
     while True:
         i += 1
         idx = np.random.randint(0, y_train.shape[0])
         anchor, cls = x_train[[idx]], y_train[[idx]]
         pos = x_train[y_train == cls][[i % (y_train == cls).sum()]]
         neg = x_train[y_train != cls][[i % (y_train == cls).sum()]]
-        yield ([anchor, pos, neg], cls)
+        dlist.append([anchor, pos, neg])
+        print(i)
+        if i == 5:
+            return dlist
 
 
 if __name__ == '__main__':
@@ -78,7 +84,7 @@ if __name__ == '__main__':
     out_dims = 2
 
     # Create the 3 inputs
-    anchor_in = Input(shape=in_dims)
+    anc_in = Input(shape=in_dims)
     pos_in = Input(shape=in_dims)
     neg_in = Input(shape=in_dims)
 
@@ -87,7 +93,7 @@ if __name__ == '__main__':
 
     print(base_network.summary())
 
-    anchor_out = base_network(anchor_in)
+    anchor_out = base_network(anc_in)
     pos_out = base_network(pos_in)
     neg_out = base_network(neg_in)
 
@@ -102,24 +108,62 @@ if __name__ == '__main__':
     print(merged_vector.shape)
 
     # Define the trainable model
-    model = Model(inputs=[anchor_in, pos_in, neg_in], outputs=merged_vector)
+    model = Model(inputs=[anc_in, pos_in, neg_in], outputs=merged_vector)
     model.compile(optimizer='adam',
                   loss=triplet_loss)
 
-    anchor_train = np.array([[1, 1], [0, 0]]).reshape((1, 2, 2, 1))
-    pos_train = np.array([[0, 0], [1, 1]]).reshape((1, 2, 2, 1))
-    neg_train = np.array([[1, 1], [0, 0]]).reshape((1, 2, 2, 1))
-
-    print(neg_train)
-
     # model.fit(x=[anchor_train, pos_train, neg_train], y=[1], batch_size=256, epochs=10, verbose=2)
 
-    for i in generate_triplets():
-        # print(i)
-        print(len(i[0][0][0]))  # anchor
-        print(len(i[0][1][0]))  # pos
-        print(len(i[0][2][0]))  # neg
-        print(len(i[1]))        # cls
-        break
+    #for i in generate_triplets():
+        #print(len(i[0][0][0]))  # anchor
+        #print(len(i[0][1][0]))  # pos
+        #print(len(i[0][2][0]))  # neg
+        # print(len(i[1]))  # cls
 
-    model.fit_generator(generate_triplets(), steps_per_epoch=512, epochs=4)
+        #x = i[0]
+        #break
+
+    triplets = generate_triplets()
+
+    print(triplets[0].__len__())
+
+    data = np.asarray(triplets)
+
+    print(data.shape)
+
+    print(data[1, 0].shape)
+
+    plt.imshow(data[1, 0].reshape(28, 28), cmap='gray')
+    plt.show()
+
+    plt.imshow(data[1, 1].reshape(28, 28), cmap='gray')
+    plt.show()
+
+    plt.imshow(data[1, 2].reshape(28, 28), cmap='gray')
+    plt.show()
+
+    X_te = {
+        'input_1': data[:, 0].reshape(5, 28, 28, 1),
+        'input_2': data[:, 1].reshape(5, 28, 28, 1),
+        'input_3': data[:, 2].reshape(5, 28, 28, 1)
+    }
+
+    # np.squeeze
+
+    print(data.shape)
+    print(type(np.asarray(data)))
+
+    model.fit(X_te, np.ones(len(X_te['input_1'])), steps_per_epoch=512, epochs=1)
+
+    x_test_encoded = model.predict(X_te, batch_size=5)
+
+    print(x_test_encoded)
+
+    plt.figure(figsize=(6, 6))
+    plt.scatter(x_test_encoded[:, 0], x_test_encoded[:, 1], c=np.ones(len(X_te['input_1'])))
+    plt.colorbar()
+    # plt.show()
+
+    # disjonctive loss
+    # siamese network
+
