@@ -1,12 +1,12 @@
-
 import numpy as np
 from matplotlib import pyplot as plt
 import tensorflow as tf
 import keras
 from keras.models import Sequential, Input, Model
 from keras.layers import Dense, Activation, BatchNormalization, Input, concatenate, Flatten, merge, ZeroPadding2D, \
-    Convolution2D, Dropout
+    Convolution2D, Dropout, MaxPooling2D
 from keras.applications.resnet50 import ResNet50
+from keras.applications.vgg16 import VGG16
 from keras.datasets import mnist
 
 
@@ -21,14 +21,14 @@ def triplet_loss(y_true, y_pred, alpha=0.3):
     return loss
 
 
-def create_base_network(in_dims, out_dims):
+def create_base_network(input_shape, output_shape):
     """
     Base network to be shared.
     """
 
-    input = Input(in_dims)
+    input = Input(input_shape)
     x = Flatten()(input)
-    out = Dense(out_dims, activation='relu')(x)
+    out = Dense(output_shape, activation='relu')(x)
 
     model = Model(input, out)
     model.summary()
@@ -36,75 +36,21 @@ def create_base_network(in_dims, out_dims):
     return model
 
 
-def get_resnet():
-    # In order to make things less confusing, all layers have been declared first, and then used
+def get_resnet(input_shape, output_shape):
+    input = Input(input_shape)
 
-    # declaration of layers
-    input_img = Input((28, 28, 1), name='input_layer')
-    zeroPad1 = ZeroPadding2D((1, 1), name='zeroPad1', dim_ordering='th')
-    zeroPad1_2 = ZeroPadding2D((1, 1), name='zeroPad1_2', dim_ordering='th')
-    layer1 = Convolution2D(6, 3, 3, subsample=(2, 2), init='he_uniform', name='major_conv', dim_ordering='th')
-    layer1_2 = Convolution2D(16, 3, 3, subsample=(2, 2), init='he_uniform', name='major_conv2', dim_ordering='th')
-    zeroPad2 = ZeroPadding2D((1, 1), name='zeroPad2', dim_ordering='th')
-    zeroPad2_2 = ZeroPadding2D((1, 1), name='zeroPad2_2', dim_ordering='th')
-    layer2 = Convolution2D(6, 3, 3, subsample=(1, 1), init='he_uniform', name='l1_conv', dim_ordering='th')
-    layer2_2 = Convolution2D(16, 3, 3, subsample=(1, 1), init='he_uniform', name='l1_conv2', dim_ordering='th')
+    model = ResNet50(input_tensor=input, classes=output_shape, weights=None, include_top=False)
 
-    zeroPad3 = ZeroPadding2D((1, 1), name='zeroPad3', dim_ordering='th')
-    zeroPad3_2 = ZeroPadding2D((1, 1), name='zeroPad3_2', dim_ordering='th')
-    layer3 = Convolution2D(6, 3, 3, subsample=(1, 1), init='he_uniform', name='l2_conv', dim_ordering='th')
-    layer3_2 = Convolution2D(16, 3, 3, subsample=(1, 1), init='he_uniform', name='l2_conv2', dim_ordering='th')
-
-    layer4 = Dense(64, activation='relu', init='he_uniform', name='dense1')
-    layer5 = Dense(16, activation='relu', init='he_uniform', name='dense2')
-
-    final = Dense(10, activation='softmax', init='he_uniform', name='classifier')
-
-    # declaration completed
-
-    first = zeroPad1(input_img)
-    second = layer1(first)
-    second = BatchNormalization(0, axis=1, name='major_bn')(second)
-    second = Activation('relu', name='major_act')(second)
-
-    third = zeroPad2(second)
-    third = layer2(third)
-    third = BatchNormalization(0, axis=1, name='l1_bn')(third)
-    third = Activation('relu', name='l1_act')(third)
-
-    third = zeroPad3(third)
-    third = layer3(third)
-    third = BatchNormalization(0, axis=1, name='l1_bn2')(third)
-    third = Activation('relu', name='l1_act2')(third)
-
-    res = merge([third, second], mode='sum', name='res')
-
-    first2 = zeroPad1_2(res)
-    second2 = layer1_2(first2)
-    second2 = BatchNormalization(0, axis=1, name='major_bn2')(second2)
-    second2 = Activation('relu', name='major_act2')(second2)
-
-    third2 = zeroPad2_2(second2)
-    third2 = layer2_2(third2)
-    third2 = BatchNormalization(0, axis=1, name='l2_bn')(third2)
-    third2 = Activation('relu', name='l2_act')(third2)
-
-    third2 = zeroPad3_2(third2)
-    third2 = layer3_2(third2)
-    third2 = BatchNormalization(0, axis=1, name='l2_bn2')(third2)
-    third2 = Activation('relu', name='l2_act2')(third2)
-
-    res2 = merge([third2, second2], mode='sum', name='res2')
-
-    res2 = Flatten()(res2)
-
-    res2 = layer4(res2)
-    res2 = Dropout(0.4, name='dropout1')(res2)
-    res2 = layer5(res2)
-    res2 = Dropout(0.4, name='dropout2')(res2)
-    res2 = final(res2)
-    model = Model(input=input_img, output=res2)
     return model
+
+
+def get_vgg(input_shape, output_shape):
+    input = Input(input_shape)
+
+    model = VGG16(input_tensor=input, classes=output_shape, weights=None, include_top=False)
+
+    return model
+
 
 def generate_triplets():
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
@@ -130,7 +76,7 @@ def generate_triplets():
         pos = x_train[y_train == cls][[i % (y_train == cls).sum()]]
         neg = x_train[y_train != cls][[i % (y_train == cls).sum()]]
         dlist.append([anchor, pos, neg])
-        if i == 10000:
+        if i == 10:
             return dlist
 
 
@@ -160,7 +106,7 @@ if __name__ == '__main__':
     # Share base network with the 3 inputs
     # base_network = create_base_network(in_dims, out_dims)
 
-    base_network = get_resnet()
+    base_network = get_vgg(in_dims, out_dims)
 
     print(base_network.summary())
 
@@ -185,14 +131,14 @@ if __name__ == '__main__':
 
     # model.fit(x=[anchor_train, pos_train, neg_train], y=[1], batch_size=256, epochs=10, verbose=2)
 
-    #for i in generate_triplets():
-        #print(len(i[0][0][0]))  # anchor
-        #print(len(i[0][1][0]))  # pos
-        #print(len(i[0][2][0]))  # neg
-        # print(len(i[1]))  # cls
+    # for i in generate_triplets():
+    # print(len(i[0][0][0]))  # anchor
+    # print(len(i[0][1][0]))  # pos
+    # print(len(i[0][2][0]))  # neg
+    # print(len(i[1]))  # cls
 
-        #x = i[0]
-        #break
+    # x = i[0]
+    # break
 
     triplets = generate_triplets()
 
@@ -214,9 +160,9 @@ if __name__ == '__main__':
     plt.show()
 
     X_te = {
-        'input_1': data[:, 0].reshape(10000, 28, 28, 1),
-        'input_2': data[:, 1].reshape(10000, 28, 28, 1),
-        'input_3': data[:, 2].reshape(10000, 28, 28, 1)
+        'input_1': data[:, 0].reshape(10, 28, 28, 1),
+        'input_2': data[:, 1].reshape(10, 28, 28, 1),
+        'input_3': data[:, 2].reshape(10, 28, 28, 1)
     }
 
     # np.squeeze
@@ -237,4 +183,4 @@ if __name__ == '__main__':
 
     # disjonctive loss
     # siamese network
-
+    # downsampling
