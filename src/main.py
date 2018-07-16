@@ -103,7 +103,6 @@ if __name__ == '__main__':
     pos_in = Input(shape=in_dims)
     neg_in = Input(shape=in_dims)
 
-    # Share base network with the 3 inputs
     # base_network = create_base_network(in_dims, out_dims)
 
     base_network = get_vgg(in_dims, out_dims)
