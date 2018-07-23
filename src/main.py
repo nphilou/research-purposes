@@ -66,6 +66,43 @@ def get_vgg(input_shape, output_shape):
     return model
 
 
+def generate_hard_triplets(x_train, y_train, count=100):
+    i = 0
+    dlist = []
+    clist = []
+
+    x_train_2d = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
+    dist = np.linalg.norm(x_train_2d - x_train_2d[:, None], axis=-1)
+
+    print(dist.shape)
+    print(dist[0])
+
+    pos_idx = dist[0].max()
+
+    print(pos_idx)
+
+    while True:
+        i += 1
+        idx = np.random.randint(0, y_train.shape[0])
+        anchor, cls = x_train[[idx]], y_train[[idx]]
+
+        # prendre i qui maximise la distance en pos et anchor
+        pos_idx = dist[0][y_train == cls].max()
+        print(dist[0][y_train == cls].shape)
+        print(dist[0][y_train == cls])
+        print(pos_idx)
+        return dlist, clist
+
+        pos = x_train[y_train == cls][[i % (y_train == cls).sum()]]
+
+        # prendre i qui minimise la distance en pos et anchor
+        neg = x_train[y_train != cls][[i % (y_train == cls).sum()]]
+        dlist.append([anchor, pos, neg])
+        clist.append(cls)
+        if i == count:
+            return dlist, clist
+
+
 def generate_triplets(x_train, y_train, count=100):
     i = 0
     dlist = []
@@ -115,10 +152,10 @@ def tensorboard():
 if __name__ == '__main__':
     path = '/Users/Philippe/Programmation/research-purposes/data/a0001-jmac_DSC1459.dng'
 
-    train_length = 100
+    train_length = 1000
     test_length = 100
     in_dims = (28, 28, 1)
-    out_dims = 3
+    out_dims = 128
     LOG_DIR = '../logs'
 
     #  dataset loading
@@ -134,7 +171,7 @@ if __name__ == '__main__':
     print(x_test.shape[0], y_test.shape, 'test samples')
 
     #  train triplets
-    triplets_train, cls_train = generate_triplets(x_train=x_train, y_train=y_train)
+    triplets_train, cls_train = generate_triplets(count=train_length, x_train=x_train, y_train=y_train)
     triplets_array = np.asarray(triplets_train)
     x_triplet_train = {
         'input_1': triplets_array[:, 0].reshape(train_length, 28, 28, 1),
@@ -142,8 +179,17 @@ if __name__ == '__main__':
         'input_3': triplets_array[:, 2].reshape(train_length, 28, 28, 1)
     }
 
+    plt.imshow(triplets_array[1, 0].reshape(28, 28), cmap='gray')
+    plt.show()
+
+    plt.imshow(triplets_array[1, 1].reshape(28, 28), cmap='gray')
+    plt.show()
+
+    plt.imshow(triplets_array[1, 2].reshape(28, 28), cmap='gray')
+    plt.show()
+
     # test triplets (pos and neg can be useless)
-    triplets_test, cls_test = generate_triplets(count=test_length, x_train=x_test, y_train=y_test)
+    triplets_test, cls_test = generate_hard_triplets(count=test_length, x_train=x_test, y_train=y_test)
     triplets_array = np.asarray(triplets_test)
     x_triplet_test = {
         'input_1': triplets_array[:, 0].reshape(test_length, 28, 28, 1),
@@ -169,14 +215,14 @@ if __name__ == '__main__':
     model = Model(inputs=[anc_in, pos_in, neg_in], outputs=merged_vector)
     model.compile(optimizer='adam',
                   loss=triplet_loss)
-    model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=64, epochs=1)
+    model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=128, epochs=1)
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
 
     # keep anchor encoding only
-    x_train_encoded_anchor = x_train_encoded[:, [0, 1, 2]]
-    x_test_encoded_anchor = x_test_encoded[:, [0, 1, 2]]
+    x_train_encoded_anchor = x_train_encoded[:, range(out_dims)]
+    x_test_encoded_anchor = x_test_encoded[:, range(out_dims)]
 
     print(x_test_encoded_anchor.shape)
 
@@ -199,3 +245,4 @@ if __name__ == '__main__':
     neigh.fit(x_train_encoded_anchor, np.ravel(cls_train))
     score = neigh.score(x_test_encoded_anchor, cls_test)
     print(score)
+
