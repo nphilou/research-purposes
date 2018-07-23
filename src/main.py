@@ -12,7 +12,7 @@ from keras.applications.vgg16 import VGG16
 from keras.datasets import mnist
 from tensorflow.contrib.tensorboard.plugins import projector
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn import datasets
+from scipy.spatial import distance
 
 
 def triplet_loss(y_true, y_pred, alpha=0.3):
@@ -72,33 +72,36 @@ def generate_hard_triplets(x_train, y_train, count=100):
     clist = []
 
     x_train_2d = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
-    dist = np.linalg.norm(x_train_2d - x_train_2d[:, None], axis=-1)
+    # dist_pos = np.linalg.norm(x_train_2d - x_train_2d[:, None], axis=-1)
+    dist_pos = distance.cdist(x_train_2d, x_train_2d, metric='euclidean')
+    np.fill_diagonal(dist_pos, np.nan)
 
-    print(dist.shape)
-    print(dist[0])
-
-    pos_idx = dist[0].max()
-
-    print(pos_idx)
+    dist_neg = np.array(dist_pos, copy=True)
 
     while True:
-        i += 1
-        idx = np.random.randint(0, y_train.shape[0])
-        anchor, cls = x_train[[idx]], y_train[[idx]]
+        anchor, cls = x_train[[i]], y_train[[i]]
+        print(cls)
 
         # prendre i qui maximise la distance en pos et anchor
-        pos_idx = dist[0][y_train == cls].max()
-        print(dist[0][y_train == cls].shape)
-        print(dist[0][y_train == cls])
-        print(pos_idx)
-        return dlist, clist
+        pos_mask = np.array(y_train == cls)
+        dist_pos[i][~pos_mask] = np.nan
+        max_idx = np.nanargmax(dist_pos[i])
 
-        pos = x_train[y_train == cls][[i % (y_train == cls).sum()]]
+        pos = x_train[[max_idx]]
+        print(y_train[[max_idx]])
 
         # prendre i qui minimise la distance en pos et anchor
-        neg = x_train[y_train != cls][[i % (y_train == cls).sum()]]
+        neg_mask = np.array(y_train != cls)
+        dist_neg[i][~neg_mask] = np.nan
+        min_idx = np.nanargmin(dist_neg[i])
+
+        neg = x_train[[min_idx]]
+        print(y_train[[min_idx]])
+
         dlist.append([anchor, pos, neg])
         clist.append(cls)
+
+        i += 1
         if i == count:
             return dlist, clist
 
@@ -155,7 +158,7 @@ if __name__ == '__main__':
     train_length = 1000
     test_length = 100
     in_dims = (28, 28, 1)
-    out_dims = 128
+    out_dims = 32
     LOG_DIR = '../logs'
 
     #  dataset loading
@@ -171,22 +174,15 @@ if __name__ == '__main__':
     print(x_test.shape[0], y_test.shape, 'test samples')
 
     #  train triplets
-    triplets_train, cls_train = generate_triplets(count=train_length, x_train=x_train, y_train=y_train)
+    triplets_train, cls_train = generate_hard_triplets(count=train_length, x_train=x_train, y_train=y_train)
     triplets_array = np.asarray(triplets_train)
+    cls = np.asarray(cls_train)
     x_triplet_train = {
         'input_1': triplets_array[:, 0].reshape(train_length, 28, 28, 1),
         'input_2': triplets_array[:, 1].reshape(train_length, 28, 28, 1),
         'input_3': triplets_array[:, 2].reshape(train_length, 28, 28, 1)
     }
 
-    plt.imshow(triplets_array[1, 0].reshape(28, 28), cmap='gray')
-    plt.show()
-
-    plt.imshow(triplets_array[1, 1].reshape(28, 28), cmap='gray')
-    plt.show()
-
-    plt.imshow(triplets_array[1, 2].reshape(28, 28), cmap='gray')
-    plt.show()
 
     # test triplets (pos and neg can be useless)
     triplets_test, cls_test = generate_hard_triplets(count=test_length, x_train=x_test, y_train=y_test)
@@ -196,6 +192,16 @@ if __name__ == '__main__':
         'input_2': triplets_array[:, 1].reshape(test_length, 28, 28, 1),
         'input_3': triplets_array[:, 2].reshape(test_length, 28, 28, 1)
     }
+
+    for i in range(1):
+        plt.imshow(triplets_array[i, 0].reshape(28, 28), cmap='gray')
+        plt.show()
+
+        plt.imshow(triplets_array[i, 1].reshape(28, 28), cmap='gray')
+        plt.show()
+
+        plt.imshow(triplets_array[i, 2].reshape(28, 28), cmap='gray')
+        plt.show()
 
     #  input tensors
     anc_in = Input(shape=in_dims)
@@ -215,7 +221,8 @@ if __name__ == '__main__':
     model = Model(inputs=[anc_in, pos_in, neg_in], outputs=merged_vector)
     model.compile(optimizer='adam',
                   loss=triplet_loss)
-    model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=128, epochs=1)
+    # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
+    model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
