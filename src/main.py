@@ -3,7 +3,6 @@ import os
 import numpy as np
 from matplotlib import pyplot as plt
 import tensorflow as tf
-import keras
 from keras.models import Sequential, Input, Model
 from keras.layers import Dense, Activation, BatchNormalization, Input, concatenate, Flatten, merge, ZeroPadding2D, \
     Convolution2D, Dropout, MaxPooling2D, Conv2D
