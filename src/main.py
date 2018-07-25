@@ -154,7 +154,7 @@ def tensorboard():
 if __name__ == '__main__':
     path = '/Users/Philippe/Programmation/research-purposes/data/a0001-jmac_DSC1459.dng'
 
-    train_length = 6000
+    train_length = 1000
     test_length = 1000
     in_dims = (28, 28, 1)
     out_dims = 16
@@ -181,7 +181,6 @@ if __name__ == '__main__':
         'input_2': triplets_array[:, 1].reshape(train_length, 28, 28, 1),
         'input_3': triplets_array[:, 2].reshape(train_length, 28, 28, 1)
     }
-
 
     # test triplets (pos and neg can be useless)
     triplets_test, cls_test = generate_hard_triplets(count=test_length, x_train=x_test, y_train=y_test)
@@ -221,20 +220,27 @@ if __name__ == '__main__':
     model.compile(optimizer='adam',
                   loss=triplet_loss)
 
-    before = model.predict(x_triplet_test)
-    plt.scatter(before[:, 0], before[:, 1], c=y_test[:1000])
+    before = model.predict(x_triplet_train)
+    plt.scatter(before[:, 0], before[:, 1], c=y_train[:train_length])
     plt.show()
-    plt.savefig("before_train.png")
 
     # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
-    model.fit(x_triplet_train, cls, steps_per_epoch=256, epochs=10)
+    model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
 
-    plt.scatter(x_test_encoded[:, 0], x_test_encoded[:, 1], c=y_test[:1000])
+    plt.scatter(x_train_encoded[:, 0], x_train_encoded[:, 1], c=y_train[:train_length])
     plt.show()
-    plt.savefig("after_train.png")
+
+    plt.scatter(x_train_encoded[:, 1], x_train_encoded[:, 2], c=y_train[:train_length])
+    plt.show()
+
+    plt.scatter(x_train_encoded[:, 2], x_train_encoded[:, 3], c=y_train[:train_length])
+    plt.show()
+
+    plt.scatter(x_train_encoded[:, 3], x_train_encoded[:, 4], c=y_train[:train_length])
+    plt.show()
 
     # keep anchor encoding only
     x_train_encoded_anchor = x_train_encoded[:, range(out_dims)]
