@@ -232,7 +232,9 @@ if __name__ == '__main__':
     }
 
     # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
-    model.fit(x_triplet_train, cls, steps_per_epoch=128, epochs=1)
+    model.fit(x_triplet_train, cls, steps_per_epoch=256, epochs=10)
+
+    model.save_weights('weights.h5')
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
