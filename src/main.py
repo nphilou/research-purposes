@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
 
+import matplotlib
 import numpy as np
+
 from matplotlib import pyplot as plt
 import tensorflow as tf
 from keras.models import Sequential, Input, Model
@@ -13,6 +15,8 @@ from keras.datasets import mnist
 from tensorflow.contrib.tensorboard.plugins import projector
 from sklearn.neighbors import KNeighborsClassifier
 from scipy.spatial import distance
+
+matplotlib.use('Agg')
 
 
 def triplet_loss(y_true, y_pred, alpha=0.3):
