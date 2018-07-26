@@ -80,7 +80,6 @@ def generate_hard_triplets(x_train, y_train, count=100):
 
     while True:
         anchor, cls = x_train[[i]], y_train[[i]]
-        print(cls)
 
         # prendre i qui maximise la distance en pos et anchor
         pos_mask = np.array(y_train == cls)
@@ -88,7 +87,6 @@ def generate_hard_triplets(x_train, y_train, count=100):
         max_idx = np.nanargmax(dist_pos[i])
 
         pos = x_train[[max_idx]]
-        print(y_train[[max_idx]])
 
         # prendre i qui minimise la distance en pos et anchor
         neg_mask = np.array(y_train != cls)
@@ -96,7 +94,6 @@ def generate_hard_triplets(x_train, y_train, count=100):
         min_idx = np.nanargmin(dist_neg[i])
 
         neg = x_train[[min_idx]]
-        print(y_train[[min_idx]])
 
         dlist.append([anchor, pos, neg])
         clist.append(cls)
@@ -176,6 +173,7 @@ if __name__ == '__main__':
     triplets_train, cls_train = generate_hard_triplets(count=train_length, x_train=x_train, y_train=y_train)
     triplets_array = np.asarray(triplets_train)
     cls = np.asarray(cls_train)
+    # train_length = cls.shape[0]
     x_triplet_train = {
         'input_1': triplets_array[:, 0].reshape(train_length, 28, 28, 1),
         'input_2': triplets_array[:, 1].reshape(train_length, 28, 28, 1),
@@ -191,7 +189,7 @@ if __name__ == '__main__':
         'input_3': triplets_array[:, 2].reshape(test_length, 28, 28, 1)
     }
 
-    for i in range(0):
+    for i in range(3):
         plt.imshow(triplets_array[i, 0].reshape(28, 28), cmap='gray')
         plt.show()
 
@@ -200,6 +198,7 @@ if __name__ == '__main__':
 
         plt.imshow(triplets_array[i, 2].reshape(28, 28), cmap='gray')
         plt.show()
+
 
     #  input tensors
     anc_in = Input(shape=in_dims)
@@ -225,7 +224,7 @@ if __name__ == '__main__':
     plt.show()
 
     # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
-    model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
+    model.fit(x_triplet_train, cls, steps_per_epoch=32, epochs=1)
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
