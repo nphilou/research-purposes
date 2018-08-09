@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 
-#  matplotlib.use('Agg')
+matplotlib.use('Agg')
 import numpy as np
 import tensorflow as tf
 from keras.applications.resnet50 import ResNet50
