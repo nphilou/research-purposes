@@ -1,23 +1,19 @@
 # -*- coding: utf-8 -*-
 import os
 
-import matplotlib
-
-matplotlib.use('Agg')
+#  matplotlib.use('Agg')
 import numpy as np
-
-from matplotlib import pyplot as plt
 import tensorflow as tf
-from keras.models import Sequential, Input, Model
-from keras.layers import Dense, Activation, BatchNormalization, Input, concatenate, Flatten, merge, ZeroPadding2D, \
-    Convolution2D, Dropout, MaxPooling2D, Conv2D
 from keras.applications.resnet50 import ResNet50
 from keras.applications.vgg16 import VGG16
 from keras.datasets import mnist
-from tensorflow.contrib.tensorboard.plugins import projector
-from sklearn.neighbors import KNeighborsClassifier
+from keras.layers import Dense, Input, concatenate, Flatten, Dropout, MaxPooling2D, Conv2D
+from keras.models import Sequential, Model
+from matplotlib import pyplot as plt
 from scipy.spatial import distance
-
+from sklearn.manifold import TSNE
+from sklearn.neighbors import KNeighborsClassifier
+from tensorflow.contrib.tensorboard.plugins import projector
 
 
 def triplet_loss(y_true, y_pred, alpha=0.3):
@@ -50,7 +46,7 @@ def simple_net(input_shape, output_shape):
     model.add(Flatten())
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.5))
-    model.add(Dense(output_shape, activation='softmax'))
+    model.add(Dense(output_shape, activation='linear'))
 
     return model
 
@@ -163,25 +159,32 @@ if __name__ == '__main__':
     out_dims = 16
     LOG_DIR = '../logs'
 
-    (x_train, y), (x_test, y_test) = mnist.load_data()
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    print(x_train.shape)
+    print(y_train.shape)
+
     x_train = x_train.astype('float32')[::10]
     x_test = x_test.astype('float32')[::10]
-    y = y[::10]
+    y_train = y_train[::10]
     y_test = y_test[::10]
     x_train /= 255
     x_test /= 255
+
     print('x_train shape:', x_train.shape)
-    print(x_train.shape[0], y.shape, 'train samples')
+    print(x_train.shape[0], y_train.shape, 'train samples')
     print(x_test.shape[0], y_test.shape, 'test samples')
 
     x_train_2d = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
     x_test_2d = x_test.reshape(x_test.shape[0], x_test.shape[1] * x_test.shape[2])
 
+    print(x_train_2d.shape)
+    print(x_test_2d.shape)
+
     #  train triplets
-    triplets_train, cls_train = generate_hard_triplets(count=train_length, dist=x_train_2d, data=x_train_2d, y=y)
+    triplets_train, cls_train = generate_hard_triplets(count=train_length, dist=x_train_2d, data=x_train_2d, y=y_train)
     triplets_array = np.asarray(triplets_train)
     cls = np.asarray(cls_train)
-    # train_length = cls.shape[0]
+
     x_triplet_train = {
         'input_1': triplets_array[:, 0].reshape(train_length, 28, 28, 1),
         'input_2': triplets_array[:, 1].reshape(train_length, 28, 28, 1),
@@ -217,13 +220,12 @@ if __name__ == '__main__':
                   loss=triplet_loss)
 
     before = model.predict(x_triplet_train)
-    plt.scatter(before[:, 0], before[:, 1], c=y[:train_length])
+    plt.scatter(before[:, 0], before[:, 1], c=y_train[:train_length])
     plt.show()
-
     print(before.shape)
 
     triplets_train, cls_train = generate_hard_triplets(count=train_length, dist=before[:, range(out_dims)],
-                                                       data=x_train_2d, y=y)
+                                                       data=x_train_2d, y=y_train)
 
     x_triplet_train = {
         'input_1': np.asarray(triplets_train)[:, 0].reshape(train_length, 28, 28, 1),
@@ -233,19 +235,18 @@ if __name__ == '__main__':
 
     # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
     model.fit(x_triplet_train, cls, steps_per_epoch=256, epochs=10)
-
     model.save_weights('weights.h5')
+    #  model.load_weights("/home/philippe/Code/research-purposes/weights.h5")
 
     x_train_encoded = model.predict(x_triplet_train)
     x_test_encoded = model.predict(x_triplet_test)
 
-    plt.scatter(x_train_encoded[:, 0], x_train_encoded[:, 1], c=y[:train_length])
+    plt.scatter(x_train_encoded[:, 0], x_train_encoded[:, 1], c=y_train[:train_length])
     plt.show()
 
     # keep anchor encoding only
     x_train_encoded_anchor = x_train_encoded[:, range(out_dims)]
     x_test_encoded_anchor = x_test_encoded[:, range(out_dims)]
-
     print(x_test_encoded_anchor.shape)
 
     # reshape raw (not from triplets) mnist data to 2D for KNN
@@ -256,15 +257,20 @@ if __name__ == '__main__':
     #  take instead x_triplet_train['input_1']reshape(train_length,28²)
     #  knn without encoding
     neigh = KNeighborsClassifier(n_neighbors=1)
-    neigh.fit(x_train_2d, y)
+    neigh.fit(x_train_2d, y_train)
     score = neigh.score(x_test_2d, y_test)
     print(score)
 
     print(x_train_encoded_anchor.shape)
 
     #  knn with encoding
-    neigh = KNeighborsClassifier(n_neighbors=1)
+    neigh = KNeighborsClassifier(n_neighbors=3)
     neigh.fit(x_train_encoded_anchor, np.ravel(cls_train))
     score = neigh.score(x_test_encoded_anchor, cls_test)
     print(score)
 
+    tsne = TSNE(n_components=2, random_state=0)
+    X_2d = tsne.fit_transform(x_train_encoded)
+
+    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_train[:train_length])
+    plt.show()
