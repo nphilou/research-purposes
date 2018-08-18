@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 import os
+from collections import defaultdict
 
-import matplotlib
-
-matplotlib.use('Agg')
 import numpy as np
 import tensorflow as tf
+from keras import Model
 from keras.applications.resnet50 import ResNet50
 from keras.applications.vgg16 import VGG16
 from keras.datasets import mnist
-from keras.layers import Dense, Input, concatenate, Flatten, Dropout, MaxPooling2D, Conv2D
-from keras.models import Sequential, Model
+from keras.layers import Dense, Input, Flatten, Dropout, MaxPooling2D, Conv2D
 from matplotlib import pyplot as plt
 from scipy.spatial import distance
 from sklearn.manifold import TSNE
 from sklearn.neighbors import KNeighborsClassifier
 from tensorflow.contrib.tensorboard.plugins import projector
+from keras import backend as K, Sequential
 
 
-def triplet_loss(y_true, y_pred, alpha=0.3):
+def triplet_loss_2(y_true, y_pred, alpha=0.3):
     anchor, positive, negative = y_pred[:1], y_pred[2:3], y_pred[3:]
 
     pos_dist = tf.reduce_sum(tf.square(tf.subtract(anchor, positive)), axis=1)
@@ -27,6 +26,23 @@ def triplet_loss(y_true, y_pred, alpha=0.3):
     loss = tf.reduce_sum(tf.maximum(basic_loss, 0.0))
 
     return loss
+
+def triplet_loss(inputs, dist='sqeuclidean', margin='maxplus'):
+    anchor, positive, negative = inputs
+    positive_distance = K.square(anchor - positive)
+    negative_distance = K.square(anchor - negative)
+    if dist == 'euclidean':
+        positive_distance = K.sqrt(K.sum(positive_distance, axis=-1, keepdims=True))
+        negative_distance = K.sqrt(K.sum(negative_distance, axis=-1, keepdims=True))
+    elif dist == 'sqeuclidean':
+        positive_distance = K.mean(positive_distance, axis=-1, keepdims=True)
+        negative_distance = K.mean(negative_distance, axis=-1, keepdims=True)
+    loss = positive_distance - negative_distance
+    if margin == 'maxplus':
+        loss = K.maximum(0.0, 1 + loss)
+    elif margin == 'softplus':
+        loss = K.log(1 + K.exp(loss))
+    return K.mean(loss)
 
 
 def simple_net(input_shape, output_shape):
@@ -51,6 +67,38 @@ def simple_net(input_shape, output_shape):
     model.add(Dense(output_shape, activation='linear'))
 
     return model
+
+def build_model(input_shape, output_shape):
+    embedding_model = Sequential()
+
+    embedding_model.add(Conv2D(32, kernel_size=(3, 3),
+                     activation='relu',
+                     input_shape=input_shape))
+    embedding_model.add(Conv2D(64, (3, 3), activation='relu'))
+    embedding_model.add(MaxPooling2D(pool_size=(2, 2)))
+    embedding_model.add(Dropout(0.25))
+    embedding_model.add(Flatten())
+    embedding_model.add(Dense(128, activation='relu'))
+    embedding_model.add(Dropout(0.5))
+    embedding_model.add(Dense(output_shape, activation='linear'))
+
+    anchor_input = Input(input_shape, name='anchor_input')
+    positive_input = Input(input_shape, name='positive_input')
+    negative_input = Input(input_shape, name='negative_input')
+
+    anchor_embedding = embedding_model(anchor_input)
+    positive_embedding = embedding_model(positive_input)
+    negative_embedding = embedding_model(negative_input)
+
+    inputs = [anchor_input, positive_input, negative_input]
+    outputs = [anchor_embedding, positive_embedding, negative_embedding]
+
+    triplet_model = Model(inputs=inputs, outputs=outputs)
+    triplet_model.add_loss(K.mean(triplet_loss(outputs)))
+    triplet_model.compile(optimizer='adam', loss=None)
+
+    return embedding_model, triplet_model
+
 
 
 def get_resnet(input_shape, output_shape):
@@ -123,6 +171,54 @@ def generate_triplets(x_train, y_train, count=100):
             return dlist, clist
 
 
+def get_triples_indices(grouped, n):
+    num_classes = len(grouped)
+    positive_labels = np.random.randint(0, num_classes, size=n)
+    negative_labels = (np.random.randint(1, num_classes, size=n) + positive_labels) % num_classes
+    triples_indices = []
+    for positive_label, negative_label in zip(positive_labels, negative_labels):
+        negative = np.random.choice(grouped[negative_label])
+        positive_group = grouped[positive_label]
+        m = len(positive_group)
+        anchor_j = np.random.randint(0, m)
+        anchor = positive_group[anchor_j]
+        positive_j = (np.random.randint(1, m) + anchor_j) % m
+        positive = positive_group[positive_j]
+        triples_indices.append([anchor, positive, negative])
+    return np.asarray(triples_indices)
+
+
+def get_triples_data(x, grouped, n):
+    indices = get_triples_indices(grouped, n)
+    return x[indices[:, 0]], x[indices[:, 1]], x[indices[:, 2]]
+
+
+def triplet_generator(x, y, batch_size):
+    grouped = defaultdict(list)
+    for i, label in enumerate(y):
+        grouped[label].append(i)
+
+    while True:
+        x_anchor, x_positive, x_negative = get_triples_data(x, grouped, batch_size)
+        yield ({'anchor_input': x_anchor,
+                'positive_input': x_positive,
+                'negative_input': x_negative},
+               None)
+
+
+def hard_triplet_generator(x, y, batch_size):
+    grouped = defaultdict(list)
+    for i, label in enumerate(y):
+        grouped[label].append(i)
+
+    while True:
+        x_anchor, x_positive, x_negative = get_triples_data(x, grouped, batch_size)
+        yield ({'anchor_input': x_anchor,
+                'positive_input': x_positive,
+                'negative_input': x_negative},
+               None)
+
+
 def tensorboard():
     # Create randomly initialized embedding weights which will be trained.
     N = 10000  # Number of items (vocab size).
@@ -158,13 +254,20 @@ if __name__ == '__main__':
     train_length = 6000
     test_length = 1000
     in_dims = (28, 28, 1)
-    out_dims = 16
+    out_dims = 2
     LOG_DIR = '../logs'
+    batch_size = 32
+    steps_per_epoch = 32
+    epochs = 100
+    plot_size = 1024
 
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
-    print(x_train.shape)
-    print(y_train.shape)
+    x_train = x_train.reshape(-1, 28, 28, 1).astype(np.float32) / 255.
+    x_test = x_test.reshape(-1, 28, 28, 1).astype(np.float32) / 255.
+    y_train = y_train.astype(np.int32)
+    y_test = y_test.astype(np.int32)
 
+    '''
     x_train = x_train.astype('float32')[::10]
     x_test = x_test.astype('float32')[::10]
     y_train = y_train[::10]
@@ -235,14 +338,28 @@ if __name__ == '__main__':
         'input_3': np.asarray(triplets_train)[:, 2].reshape(train_length, 28, 28, 1)
     }
 
-    # model.fit(x_triplet_train, np.ones(len(x_triplet_train['input_1'])), steps_per_epoch=256, epochs=10)
-    model.fit(x_triplet_train, cls, steps_per_epoch=256, epochs=10)
-    model.save_weights('weights.h5')
+    xtemp, useless = generate_triplets(x_train, y_train, 6000)
+
+    x_triplet_train = {
+        'input_1': np.asarray(xtemp)[:, 0].reshape(train_length, 28, 28, 1),
+        'input_2': np.asarray(xtemp)[:, 1].reshape(train_length, 28, 28, 1),
+        'input_3': np.asarray(xtemp)[:, 2].reshape(train_length, 28, 28, 1)
+    }
+    '''
+
+    embedding_model, triplet_model = build_model(in_dims, out_dims)
+
+    triplet_model.fit_generator(hard_triplet_generator(x_train, y_train, 32), steps_per_epoch=steps_per_epoch, epochs=epochs)
+    # model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
+    #  model.save_weights('weights.h5')
     #  model.load_weights("/home/philippe/Code/research-purposes/weights.h5")
 
-    x_train_encoded = model.predict(x_triplet_train)
-    x_test_encoded = model.predict(x_triplet_test)
 
+    exit()
+
+
+    x_train_encoded = triplet_model.predict(x_triplet_train)
+    x_test_encoded = triplet_model.predict(x_triplet_test)
     plt.scatter(x_train_encoded[:, 0], x_train_encoded[:, 1], c=y_train[:train_length])
     plt.show()
 
