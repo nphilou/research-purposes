@@ -27,6 +27,7 @@ def triplet_loss_2(y_true, y_pred, alpha=0.3):
 
     return loss
 
+
 def triplet_loss(inputs, dist='sqeuclidean', margin='maxplus'):
     anchor, positive, negative = inputs
     positive_distance = K.square(anchor - positive)
@@ -68,6 +69,7 @@ def simple_net(input_shape, output_shape):
 
     return model
 
+
 def build_model(input_shape, output_shape):
     embedding_model = Sequential()
 
@@ -98,7 +100,6 @@ def build_model(input_shape, output_shape):
     triplet_model.compile(optimizer='adam', loss=None)
 
     return embedding_model, triplet_model
-
 
 
 def get_resnet(input_shape, output_shape):
@@ -188,8 +189,62 @@ def get_triples_indices(grouped, n):
     return np.asarray(triples_indices)
 
 
+def get_hard_triples_indices(x, grouped, n, embedding_model):
+    num_classes = len(grouped)
+    positive_labels = np.random.randint(0, num_classes, size=n)
+    negative_labels = (np.random.randint(1, num_classes, size=n) + positive_labels) % num_classes
+    triples_indices = []
+    for positive_label, negative_label in zip(positive_labels, negative_labels):
+
+        negative = np.random.choice(grouped[negative_label])
+
+        print(negative)
+
+        positive_group = grouped[positive_label]
+
+        print(positive_group)
+
+        m = len(positive_group)
+
+        print(m)
+
+        positive_j = np.random.randint(0, m)
+        positive = positive_group[positive_j]
+
+        print(positive)
+        print(x[positive_group].shape)
+
+        # Negative and positive are randomly chosen, anchor must be far from positive and close to negative
+        # anchor_j = (np.random.randint(1, m) + positive_j) % m
+
+        positive_group_emb = embedding_model.predict(x[positive_group])
+        positive_emb = np.expand_dims(positive_group_emb[positive_j], axis=0)
+        negative_emb = embedding_model.predict(np.expand_dims(x[negative], axis=0))
+
+        print(positive_emb.shape)
+        print(positive_group_emb.shape)
+
+        positive_distance = distance.cdist(positive_emb, positive_group_emb, metric='euclidean')
+        negative_distance = distance.cdist(negative_emb, positive_group_emb, metric='euclidean')
+
+        print(positive_distance)
+
+        anchor_j = np.argmax(positive_distance - negative_distance)
+        anchor = positive_group[anchor_j]
+
+        triples_indices.append([anchor, positive, negative])
+
+        print(triples_indices)
+    return np.asarray(triples_indices)
+
+
 def get_triples_data(x, grouped, n):
     indices = get_triples_indices(grouped, n)
+    return x[indices[:, 0]], x[indices[:, 1]], x[indices[:, 2]]
+
+
+def get_hard_triples_data(x, grouped, n, embedding_model):
+    indices = get_hard_triples_indices(x, grouped, n, embedding_model)
     return x[indices[:, 0]], x[indices[:, 1]], x[indices[:, 2]]
 
 
@@ -206,13 +261,13 @@ def triplet_generator(x, y, batch_size):
                None)
 
 
-def hard_triplet_generator(x, y, batch_size):
+def hard_triplet_generator(x, y, batch_size, embedding_model):
     grouped = defaultdict(list)
     for i, label in enumerate(y):
         grouped[label].append(i)
 
     while True:
-        x_anchor, x_positive, x_negative = get_triples_data(x, grouped, batch_size)
+        x_anchor, x_positive, x_negative = get_hard_triples_data(x, grouped, batch_size, embedding_model)
         yield ({'anchor_input': x_anchor,
                 'positive_input': x_positive,
                 'negative_input': x_negative},
@@ -349,7 +404,9 @@ if __name__ == '__main__':
 
     embedding_model, triplet_model = build_model(in_dims, out_dims)
 
-    triplet_model.fit_generator(hard_triplet_generator(x_train, y_train, 32), steps_per_epoch=steps_per_epoch, epochs=epochs)
+    print(embedding_model.predict(np.expand_dims(x_train[0], axis=0)))
+
+    triplet_model.fit_generator(hard_triplet_generator(x_train, y_train, 32, embedding_model), steps_per_epoch=steps_per_epoch, epochs=epochs)
     # model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
     #  model.save_weights('weights.h5')
     #  model.load_weights("/home/philippe/Code/research-purposes/weights.h5")

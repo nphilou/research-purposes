@@ -65,6 +65,7 @@ def tri_loss(y_true, y_pred, alpha=0.3):
 
     return loss
 
+
 def build_model(input_shape):
     base_input = Input(input_shape)
     x = Conv2D(32, (3, 3), activation='relu')(base_input)
