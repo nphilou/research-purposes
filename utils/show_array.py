@@ -31,10 +31,6 @@ def show_array(a, fmt='png', filename=None, retina=False, zoom=None):
 
         img = Image(image_data.getvalue(), width=width, height=height, retina=retina)
         display(img)
-
-        print(image_data.getvalue())
-        print(image_data.getvalue().__len__())
-
     else:
         with open(filename, 'wb') as f:
             image_data.seek(0)

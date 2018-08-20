@@ -2,6 +2,7 @@
 import os
 from collections import defaultdict
 
+import keras
 import numpy as np
 import tensorflow as tf
 from keras import Model
@@ -15,6 +16,11 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import KNeighborsClassifier
 from tensorflow.contrib.tensorboard.plugins import projector
 from keras import backend as K, Sequential
+
+from IPython.display import clear_output
+from utils.build_rainbow import build_rainbow
+from utils.plot_images import plot_images
+from utils.show_array import show_array
 
 
 def triplet_loss_2(y_true, y_pred, alpha=0.3):
@@ -194,47 +200,36 @@ def get_hard_triples_indices(x, grouped, n, embedding_model):
     positive_labels = np.random.randint(0, num_classes, size=n)
     negative_labels = (np.random.randint(1, num_classes, size=n) + positive_labels) % num_classes
     triples_indices = []
+    embeddings = []
+
+    for i in range(num_classes):
+        embeddings.append(embedding_model.predict(x[grouped[i]]))
+
     for positive_label, negative_label in zip(positive_labels, negative_labels):
 
         negative = np.random.choice(grouped[negative_label])
 
-        print(negative)
-
         positive_group = grouped[positive_label]
-
-        print(positive_group)
-
         m = len(positive_group)
-
-        print(m)
 
         positive_j = np.random.randint(0, m)
         positive = positive_group[positive_j]
 
-        print(positive)
-        print(x[positive_group].shape)
-
         # Negative and positive are randomly chosen, anchor must be far from positive and close to negative
         # anchor_j = (np.random.randint(1, m) + positive_j) % m
 
-        positive_group_emb = embedding_model.predict(x[positive_group])
-        positive_emb = np.expand_dims(positive_group_emb[positive_j], axis=0)
+        # positive_group_emb = embedding_model.predict(x[positive_group])
+        positive_emb = np.expand_dims(embeddings[positive_label][positive_j], axis=0)
         negative_emb = embedding_model.predict(np.expand_dims(x[negative], axis=0))
 
-        print(positive_emb.shape)
-        print(positive_group_emb.shape)
-
-        positive_distance = distance.cdist(positive_emb, positive_group_emb, metric='euclidean')
-        negative_distance = distance.cdist(negative_emb, positive_group_emb, metric='euclidean')
-
-        print(positive_distance)
+        positive_distance = distance.cdist(positive_emb, embeddings[positive_label], metric='euclidean')
+        negative_distance = distance.cdist(negative_emb, embeddings[positive_label], metric='euclidean')
 
         anchor_j = np.argmax(positive_distance - negative_distance)
         anchor = positive_group[anchor_j]
 
         triples_indices.append([anchor, positive, negative])
 
-        print(triples_indices)
     return np.asarray(triples_indices)
 
 
@@ -303,6 +298,19 @@ def tensorboard():
     projector.visualize_embeddings(summary_writer, config)
 
 
+class Plotter(keras.callbacks.Callback):
+    def __init__(self, embedding_model, x, images, plot_size):
+        self.embedding_model = embedding_model
+        self.x = x
+        self.images = images
+        self.plot_size = plot_size
+
+    def on_epoch_end(self, epoch, logs={}):
+        clear_output(wait=True)
+        xy = self.embedding_model.predict(self.x[:self.plot_size])
+        show_array(255 - plot_images(self.images[:self.plot_size].squeeze(), xy))
+
+
 if __name__ == '__main__':
     path = '/Users/Philippe/Programmation/research-purposes/data/a0001-jmac_DSC1459.dng'
 
@@ -322,131 +330,25 @@ if __name__ == '__main__':
     y_train = y_train.astype(np.int32)
     y_test = y_test.astype(np.int32)
 
-    '''
-    x_train = x_train.astype('float32')[::10]
-    x_test = x_test.astype('float32')[::10]
-    y_train = y_train[::10]
-    y_test = y_test[::10]
-    x_train /= 255
-    x_test /= 255
-
-    print('x_train shape:', x_train.shape)
-    print(x_train.shape[0], y_train.shape, 'train samples')
-    print(x_test.shape[0], y_test.shape, 'test samples')
-
-    x_train_2d = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
-    x_test_2d = x_test.reshape(x_test.shape[0], x_test.shape[1] * x_test.shape[2])
-
-    print(x_train_2d.shape)
-    print(x_test_2d.shape)
-
-    #  train triplets
-    triplets_train, cls_train = generate_hard_triplets(count=train_length, dist=x_train_2d, data=x_train_2d, y=y_train)
-    triplets_array = np.asarray(triplets_train)
-    cls = np.asarray(cls_train)
-
-    x_triplet_train = {
-        'input_1': triplets_array[:, 0].reshape(train_length, 28, 28, 1),
-        'input_2': triplets_array[:, 1].reshape(train_length, 28, 28, 1),
-        'input_3': triplets_array[:, 2].reshape(train_length, 28, 28, 1)
-    }
-
-    # test triplets (pos and neg can be useless)
-    triplets_test, cls_test = generate_hard_triplets(count=test_length, dist=x_test_2d, data=x_test_2d, y=y_test)
-    triplets_array = np.asarray(triplets_test)
-    x_triplet_test = {
-        'input_1': triplets_array[:, 0].reshape(test_length, 28, 28, 1),
-        'input_2': triplets_array[:, 1].reshape(test_length, 28, 28, 1),
-        'input_3': triplets_array[:, 2].reshape(test_length, 28, 28, 1)
-    }
-
-    #  input tensors
-    anc_in = Input(shape=in_dims)
-    pos_in = Input(shape=in_dims)
-    neg_in = Input(shape=in_dims)
-
-    #  shared network
-    base_network = simple_net(in_dims, out_dims)
-    print(base_network.summary())
-
-    anc_out = base_network(anc_in)
-    pos_out = base_network(pos_in)
-    neg_out = base_network(neg_in)
-
-    merged_vector = concatenate([anc_out, pos_out, neg_out])
-
-    model = Model(inputs=[anc_in, pos_in, neg_in], outputs=merged_vector)
-    model.compile(optimizer='adam',
-                  loss=triplet_loss)
-
-    before = model.predict(x_triplet_train)
-    plt.scatter(before[:, 0], before[:, 1], c=y_train[:train_length])
-    plt.show()
-    print(before.shape)
-
-    triplets_train, cls_train = generate_hard_triplets(count=train_length, dist=before[:, range(out_dims)],
-                                                       data=x_train_2d, y=y_train)
-
-    x_triplet_train = {
-        'input_1': np.asarray(triplets_train)[:, 0].reshape(train_length, 28, 28, 1),
-        'input_2': np.asarray(triplets_train)[:, 1].reshape(train_length, 28, 28, 1),
-        'input_3': np.asarray(triplets_train)[:, 2].reshape(train_length, 28, 28, 1)
-    }
-
-    xtemp, useless = generate_triplets(x_train, y_train, 6000)
-
-    x_triplet_train = {
-        'input_1': np.asarray(xtemp)[:, 0].reshape(train_length, 28, 28, 1),
-        'input_2': np.asarray(xtemp)[:, 1].reshape(train_length, 28, 28, 1),
-        'input_3': np.asarray(xtemp)[:, 2].reshape(train_length, 28, 28, 1)
-    }
-    '''
+    colors = build_rainbow(len(np.unique(y_train)))
+    colored_x = np.asarray([colors[cur_y] * cur_x for cur_x, cur_y in zip(x_train, y_train)])
 
     embedding_model, triplet_model = build_model(in_dims, out_dims)
+    plotter = Plotter(embedding_model, x_train, colored_x, plot_size)
 
     print(embedding_model.predict(np.expand_dims(x_train[0], axis=0)))
 
-    triplet_model.fit_generator(hard_triplet_generator(x_train, y_train, 32, embedding_model), steps_per_epoch=steps_per_epoch, epochs=epochs)
+    triplet_model.fit_generator(hard_triplet_generator(x_train, y_train, 32, embedding_model),
+                                steps_per_epoch=steps_per_epoch, epochs=epochs, callbacks=[plotter])
     # model.fit(x_triplet_train, cls, steps_per_epoch=64, epochs=1)
     #  model.save_weights('weights.h5')
     #  model.load_weights("/home/philippe/Code/research-purposes/weights.h5")
 
-
-    exit()
-
-
-    x_train_encoded = triplet_model.predict(x_triplet_train)
-    x_test_encoded = triplet_model.predict(x_triplet_test)
-    plt.scatter(x_train_encoded[:, 0], x_train_encoded[:, 1], c=y_train[:train_length])
-    plt.show()
-
-    # keep anchor encoding only
-    x_train_encoded_anchor = x_train_encoded[:, range(out_dims)]
-    x_test_encoded_anchor = x_test_encoded[:, range(out_dims)]
-    print(x_test_encoded_anchor.shape)
-
-    # reshape raw (not from triplets) mnist data to 2D for KNN
-    x_train_2d = x_train.reshape(x_train.shape[0], x_train.shape[1] * x_train.shape[2])
-    x_test_2d = x_test.reshape(x_test.shape[0], x_test.shape[1] * x_test.shape[2])
-
-    #  todo : warning : not the same x_train !
-    #  take instead x_triplet_train['input_1']reshape(train_length,28²)
-    #  knn without encoding
-    neigh = KNeighborsClassifier(n_neighbors=1)
-    neigh.fit(x_train_2d, y_train)
-    score = neigh.score(x_test_2d, y_test)
-    print(score)
-
-    print(x_train_encoded_anchor.shape)
-
-    #  knn with encoding
+    x_train_emb = embedding_model.predict(x_train)
     neigh = KNeighborsClassifier(n_neighbors=3)
-    neigh.fit(x_train_encoded_anchor, np.ravel(cls_train))
-    score = neigh.score(x_test_encoded_anchor, cls_test)
+    neigh.fit(x_train_emb, np.ravel(y_train))
+    score = neigh.score(x_train_emb, y_train)
     print(score)
 
-    tsne = TSNE(n_components=2, random_state=0)
-    X_2d = tsne.fit_transform(x_train_encoded)
-
-    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_train[:train_length])
+    plt.scatter(x_train_emb[:, 0], x_train_emb[:, 1], c=y_train[:train_length])
     plt.show()
