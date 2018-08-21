@@ -29,8 +29,8 @@ def show_array(a, fmt='png', filename=None, retina=False, zoom=None):
                                                       height=height,
                                                       retina=retina))
 
-        img = Image(image_data.getvalue(), width=width, height=height, retina=retina)
-        display(img)
+        #img = Image(image_data.getvalue(), width=width, height=height, retina=retina)
+        #display(img)
     else:
         with open(filename, 'wb') as f:
             image_data.seek(0)

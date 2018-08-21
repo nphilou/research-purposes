@@ -209,11 +209,18 @@ def get_hard_triples_indices(x, grouped, n, embedding_model):
 
         negative = np.random.choice(grouped[negative_label])
 
+        print(negative)
+
         positive_group = grouped[positive_label]
         m = len(positive_group)
 
+        print(m)
+
         positive_j = np.random.randint(0, m)
         positive = positive_group[positive_j]
+
+        print(positive_j)
+        print(positive)
 
         # Negative and positive are randomly chosen, anchor must be far from positive and close to negative
         # anchor_j = (np.random.randint(1, m) + positive_j) % m
@@ -222,11 +229,20 @@ def get_hard_triples_indices(x, grouped, n, embedding_model):
         positive_emb = np.expand_dims(embeddings[positive_label][positive_j], axis=0)
         negative_emb = embedding_model.predict(np.expand_dims(x[negative], axis=0))
 
-        positive_distance = distance.cdist(positive_emb, embeddings[positive_label], metric='euclidean')
-        negative_distance = distance.cdist(negative_emb, embeddings[positive_label], metric='euclidean')
+        print(positive_label)
+
+        positive_distance = distance.cdist(positive_emb, embeddings[positive_label], metric='sqeuclidean')
+        negative_distance = distance.cdist(negative_emb, embeddings[positive_label], metric='sqeuclidean')
+
+        print(positive_distance - negative_distance)
 
         anchor_j = np.argmax(positive_distance - negative_distance)
         anchor = positive_group[anchor_j]
+
+        print(anchor_j)
+        print(anchor)
+
+        print([anchor, positive, negative])
 
         triples_indices.append([anchor, positive, negative])
 
