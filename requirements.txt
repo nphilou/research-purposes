@@ -13,7 +13,7 @@ Keras-Preprocessing==1.0.1
 kiwisolver==1.0.1
 Markdown==2.6.11
 matplotlib==2.2.2
-numpy==1.14.5
+numpy==1.22.0
 opencv-python==3.4.1.15
 Pillow==5.1.0
 protobuf==3.6.0
